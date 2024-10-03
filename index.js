@@ -274,7 +274,5 @@ axios({
         rl.close(); // Menutup interface readline
     }
 };
-
-// Memanggil fungsi utama
 inputLink();
-// TEST by Diaa:3
+//coba-coba dia:3

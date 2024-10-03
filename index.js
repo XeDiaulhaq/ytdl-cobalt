@@ -10,15 +10,15 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import { createInterface } from 'readline';
 
 // Membuat interface untuk membaca input
+import { createWriteStream } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
+import { resolve } from 'path';
+import ProgressBar  from 'progress';  // Import modul cli-progress
+
 const rl = createInterface({
     input: process.stdin,
     output: process.stdout
 });
-import { createWriteStream } from 'fs';
-import { mkdirSync, existsSync } from 'fs';
-import { resolve } from 'path';
-import cliProgress from 'cli-progress';  // Import modul cli-progress
-
 
 import yts from "yt-search";
 import axios from "axios";
@@ -180,98 +180,97 @@ export function youtube(data) {
         }));
     });
 }
+
+
 const inputLink = async () => {
-    // Menggunakan promise untuk menunggu input dari pengguna
     const userInput = await new Promise((resolve) => {
         rl.question("Masukkan link YouTube: ", (answer) => {
             resolve(answer);
         });
     });
+    
     const userInputQuality = await new Promise((resolve) => {
-        rl.question("Masukkan Resolusi: ", (answer) => {
+        rl.question("Resolusi: 8k+ | 4k | 1440p | 1080p | 720p | 480p | 360p | 240p | 144p\nMasukkan Resolusi: ", (answer) => {
             resolve(answer);
         });
     });
 
-    // Jika input diberikan
     if (userInput) {
         try {
-            // Menggunakan input pengguna sebagai link YouTube
-            const v = await youtube(userInput); // Menggunakan link YouTube yang diberikan pengguna
-            console.log(v); // Menampilkan semua metadata
-            console.log(v.download); // Menampilkan informasi download
+            const v = await youtube(userInput);
+            const videoUrl = await v.download.video(userInputQuality);
+            console.log("URL Video:", videoUrl);
 
-            
+            const videoTitle = v.download.title;
+            const sanitizedTitle = videoTitle.replace(/[<>:"\/\\|?*]+/g, ''); // Menghapus karakter yang tidak diizinkan dalam nama file
+            const downloadDir = resolve('./downloads'); // Resolusi ke folder downloads
 
-// Cek dan buat folder downloads jika belum ada
-if (!existsSync(resolve('./downloads'))) {
-    mkdirSync(resolve('./downloads'));
-}
+            // Cek apakah direktori 'downloads' ada, jika tidak buat direktori baru
+            if (!existsSync(downloadDir)) {
+                mkdirSync(downloadDir);
+                console.log("Direktori 'downloads' dibuat.");
+            }
 
-const videoUrl = await v.download.video(userInputQuality);
-console.log("URL Video:", videoUrl);
+            const filePath = resolve(downloadDir, `${sanitizedTitle}.mp4`); // Resolusi ke path file video
+            const writer = createWriteStream(filePath);
 
-const videoTitle = v.download.title; // Mendapatkan judul video dari metadata
-const sanitizedTitle = videoTitle.replace(/[<>:"\/\\|?*]+/g, ''); // Menghapus karakter yang tidak diizinkan dalam nama file
-const filePath = resolve('./downloads', `${sanitizedTitle}.mp4`); // Menggunakan judul video untuk nama file
-const writer = createWriteStream(filePath);
+            // Menggunakan axios untuk download file dengan stream dan menampilkan progress
+            axios({
+                url: videoUrl,
+                method: 'GET',
+                responseType: 'stream'
+            }).then(response => {
+                const totalLength = parseInt(response.headers['content-length'], 10);
+                let downloadedLength = 0;
+                let startTime = Date.now();
 
-// Membuat progress bar baru
-const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+                if (!totalLength || isNaN(totalLength)) {
+                    console.log('Progress download dimulai');
 
-// Menggunakan axios untuk download file dengan stream dan menampilkan progress
-axios({
-    url: videoUrl,
-    method: 'GET',
-    responseType: 'stream'
-}).then(response => {
-    const totalLength = response.headers['content-length'];
+                    response.data.on('data', (chunk) => {
+                        downloadedLength += chunk.length;
+                        let elapsedTime = (Date.now() - startTime) / 1000;
+                        let rate = (downloadedLength / elapsedTime).toFixed(2);
+                        process.stdout.write(`\rDownloaded ${downloadedLength} bytes at ${rate} bytes per second.`); // Mengganti console.log dengan process.stdout.write
+                    });
+                } else {
+                    // Inisialisasi progress bar jika totalLength valid
+                        if (totalLength) {
+                            var progressBar = new ProgressBar('  downloading [:bar] :rate/bps :percent :etas', {
+                                complete: '=',
+                                incomplete: ' ',
+                                width: 20,
+                                total: parseInt(totalLength)
+                            });
 
-    // Cek apakah content-length ada
-    if (totalLength) {
-        // Inisialisasi progress bar dengan total ukuran file
-        progressBar.start(parseInt(totalLength), 0);
-    } else {
-        console.log('Progres download tidak bisa diukur (content-length undefined)');
-    }
+                    response.data.on('data', (chunk) => {
+                        downloadedLength += chunk.length;
+                        progressBar.tick(chunk.length);
+                    });
+                }
 
-    response.data.pipe(writer);
+                response.data.pipe(writer);
 
-    // Event untuk memonitor progress jika content-length diketahui
-    let downloadedLength = 0;
-    response.data.on('data', (chunk) => {
-        downloadedLength += chunk.length;
-        if (totalLength) {
-            // Update progress bar dengan jumlah byte yang sudah didownload
-            progressBar.update(downloadedLength);
-        }
-    });
+                writer.on('finish', () => {
+                    console.log(`\nFile berhasil diunduh ke ${filePath}`);
+                });
 
-    writer.on('finish', () => {
-        if (totalLength) {
-            progressBar.stop();  // Stop progress bar setelah selesai
-        }
-        console.log(`File berhasil diunduh ke ${filePath}`);
-    });
+                writer.on('error', (err) => {
+                    console.error('Gagal mendownload file:', err);
+                });
+                }
+            }).catch(err => {
+                console.error('Error saat mendownload:', err);
+            });
 
-    writer.on('error', (err) => {
-        console.error('Gagal mendownload file:', err);
-    });
-}).catch(err => {
-    console.error('Error saat mendownload:', err);
-});
-
-            // Jika ingin mendownload audio, tinggal aktifkan baris ini
-            // const audioUrl = await v.download.audio('mp3'); // Mendapatkan URL audio dengan format mp3
-            // console.log(audioUrl);
         } catch (error) {
             console.error("Terjadi kesalahan dalam memproses link:", error);
         } finally {
-            rl.close(); // Menutup interface readline setelah selesai
+            rl.close();
         }
     } else {
         console.log("Link YouTube tidak dimasukkan.");
-        rl.close(); // Menutup interface readline
+        rl.close();
     }
 };
 inputLink();
